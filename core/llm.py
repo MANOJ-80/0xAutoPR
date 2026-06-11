@@ -236,31 +236,68 @@ def generate_for_agent(
 ) -> str:
     """Generate text using the NIM model assigned to a specific agent.
 
-    Each agent (review_agent, fix_writer, etc.) gets its own specialized
-    model from the NIM platform.  Falls back to the generic provider chain
-    if the NIM call fails.
+    NIM is the sole provider.  On rate limits (429), we wait out the full
+    60-second window and retry instead of falling back to nothing.
     """
     cfg = config or get_config()
-
-    # Resolve the NIM model for this agent
     nim_model = getattr(cfg.nim_models, agent, None)
 
-    if nim_model and cfg.has_nvidia():
-        try:
-            logger.info("NIM call: agent=%s model=%s", agent, nim_model)
-            return _retry(lambda p: _call_nim(p, cfg, nim_model), prompt)
-        except Exception as exc:
-            logger.warning(
-                "NIM model %s failed for agent %s: %s — falling back",
-                nim_model, agent, exc,
-            )
-            # If the failure was a rate limit, skip NIM entirely in fallback
-            # to avoid the cascading 429 death spiral
-            if _is_rate_limit(exc) or "429" in str(exc):
-                return generate(prompt, config=cfg, _skip_nim=True)
+    if not (nim_model and cfg.has_nvidia()):
+        raise RuntimeError(f"No NIM model configured for agent '{agent}'")
 
-    # Fallback to the generic multi-provider chain
-    return generate(prompt, config=cfg)
+    last_err: Optional[Exception] = None
+    max_attempts = 8  # Enough attempts to survive multiple 60s rate-limit windows
+
+    for attempt in range(max_attempts):
+        try:
+            _nim_throttle()
+            logger.info("NIM call: agent=%s model=%s (attempt %d/%d)", agent, nim_model, attempt + 1, max_attempts)
+
+            from openai import OpenAI
+            client = OpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=cfg.nvidia_api_key,
+                timeout=120.0,
+                max_retries=0,
+            )
+            completion = client.chat.completions.create(
+                model=nim_model,
+                messages=[{"role": "user", "content": sanitize_prompt(prompt)}],
+                max_tokens=4096,
+            )
+            return completion.choices[0].message.content or ""
+
+        except Exception as exc:
+            last_err = exc
+            if _is_daily_limit(exc):
+                raise RuntimeError(f"Daily token limit exceeded: {exc}") from exc
+
+            if _is_rate_limit(exc) or "429" in str(exc):
+                # Wait out the full rate-limit window (60s) + jitter
+                wait = 65.0
+                logger.warning(
+                    "NIM rate-limited (attempt %d/%d). Cooling down %.0fs before retry... %s",
+                    attempt + 1, max_attempts, wait, exc,
+                )
+                time.sleep(wait)
+            elif "timed out" in str(exc).lower():
+                # Timeout — short wait, the server was just slow
+                wait = 5.0
+                logger.warning(
+                    "NIM timeout (attempt %d/%d). Waiting %.0fs... %s",
+                    attempt + 1, max_attempts, wait, exc,
+                )
+                time.sleep(wait)
+            else:
+                # Other error — exponential backoff
+                wait = min(_BACKOFF_BASE ** attempt, 30.0)
+                logger.warning(
+                    "NIM error (attempt %d/%d). Waiting %.0fs... %s",
+                    attempt + 1, max_attempts, wait, exc,
+                )
+                time.sleep(wait)
+
+    raise RuntimeError(f"NIM call failed for agent '{agent}' after {max_attempts} attempts: {last_err}")
 
 
 def generate(
