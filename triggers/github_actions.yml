@@ -1,0 +1,57 @@
+# Copy to .github/workflows/0xautopr.yml in your target repository
+name: 0xAutoPR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  autopr:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout Target Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: target-repo
+
+      - name: Checkout 0xAutoPR
+        uses: actions/checkout@v4
+        with:
+          repository: MANOJ-80/0xAutoPR  # Replace with your actual 0xAutoPR repo if different
+          path: 0xAutoPR
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install 0xAutoPR
+        run: |
+          cd 0xAutoPR
+          pip install -r requirements.txt
+
+      - name: Run 0xAutoPR pipeline
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DRY_RUN: "false"
+        run: |
+          cd 0xAutoPR
+          PYTHONPATH=. python main.py run \
+            --pr-url "${{ github.event.pull_request.html_url }}" \
+            --pr-number ${{ github.event.pull_request.number }} \
+            --repo-url "${{ github.event.repository.html_url }}" \
+            --repo-full-name "${{ github.event.repository.full_name }}" \
+            --base-branch "${{ github.event.pull_request.base.ref }}" \
+            --head-branch "${{ github.event.pull_request.head.ref }}"
