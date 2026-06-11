@@ -10,6 +10,7 @@ GitPython>=3.1.40
 Flask>=3.0.0
 httpx>=0.27.0
 python-dotenv>=1.0.0
+openai>=1.0.0
 
 # Test dependencies
 pytest>=8.0.0
