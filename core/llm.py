@@ -217,7 +217,7 @@ def _call_nim(prompt: str, config: AppConfig, model: str) -> str:
     client = OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=config.nvidia_api_key,
-        timeout=60.0,
+        timeout=120.0,
         max_retries=0,
     )
     completion = client.chat.completions.create(
@@ -254,6 +254,10 @@ def generate_for_agent(
                 "NIM model %s failed for agent %s: %s — falling back",
                 nim_model, agent, exc,
             )
+            # If the failure was a rate limit, skip NIM entirely in fallback
+            # to avoid the cascading 429 death spiral
+            if _is_rate_limit(exc) or "429" in str(exc):
+                return generate(prompt, config=cfg, _skip_nim=True)
 
     # Fallback to the generic multi-provider chain
     return generate(prompt, config=cfg)
@@ -265,6 +269,7 @@ def generate(
     prefer: str = "gemini",
     json_mode: bool = False,
     config: Optional[AppConfig] = None,
+    _skip_nim: bool = False,
 ) -> str:
     """Generate text using the best available provider."""
     if not is_llm_available():
@@ -276,7 +281,7 @@ def generate(
     providers: list[tuple[str, callable]] = []
 
     # NIM platform as highest priority — use the fix_writer model as default
-    if cfg.has_nvidia():
+    if cfg.has_nvidia() and not _skip_nim:
         default_nim = cfg.nim_models.fix_writer
         providers.append(("nvidia/nim", lambda p: _call_nim(p, cfg, default_nim)))
 
