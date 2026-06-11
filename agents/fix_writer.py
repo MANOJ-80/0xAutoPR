@@ -87,7 +87,7 @@ def run_fix_writer(state: PipelineState, config: AppConfig | None = None) -> dic
     eligible = sorted(
         issues,
         key=lambda i: (severity_rank.get(i.severity, 4), -i.confidence),
-    )[:5]
+    )[:3]  # Cap at 3 to stay within NVIDIA NIM free-tier rate limits
 
     fixes: list[Fix] = []
     for issue in eligible:

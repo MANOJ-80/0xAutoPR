@@ -21,6 +21,13 @@ _llm_disabled = False
 _llm_disable_reason = ""
 _llm_lock = threading.Lock()
 
+# ── Global NIM rate limiter (token bucket) ──────────────────────────────
+# NVIDIA free tier = 40 RPM.  We pace to 30 RPM (2s between calls) to
+# leave headroom for bursts and avoid ever hitting the wall.
+_NIM_MIN_INTERVAL = 2.0          # seconds between consecutive NIM calls
+_nim_last_call_time = 0.0        # epoch timestamp of last NIM request
+_nim_rate_lock = threading.Lock()
+
 
 def is_llm_available() -> bool:
     """Return False when rate-limited or HEURISTICS_ONLY is set."""
@@ -81,11 +88,14 @@ def _is_daily_limit(exc: Exception) -> bool:
 
 
 def _rate_limit_wait(exc: Exception, attempt: int) -> float:
+    """For 429s, wait at least 30s on first hit and scale up.
+    NVIDIA's rate-limit window is 60s, so short waits just burn retries."""
     msg = str(exc)
     match = re.search(r"try again in ([\d.]+)s", msg, re.I)
     if match:
-        return float(match.group(1)) + 0.5
-    return _BACKOFF_BASE ** attempt
+        return float(match.group(1)) + 1.0
+    # 30s, 45s, 60s, 60s, 60s — actually survive the 60s window
+    return min(30.0 * (1.5 ** attempt), 60.0)
 
 
 def _retry(fn, *args, **kwargs) -> str:
@@ -184,9 +194,25 @@ def _call_cerebras(prompt: str, config: AppConfig) -> str:
     return response.json()["choices"][0]["message"]["content"]
 
 
+def _nim_throttle() -> None:
+    """Block until enough time has passed since the last NIM call.
+    This enforces a global 30 RPM ceiling (2s spacing) across all threads."""
+    global _nim_last_call_time
+    with _nim_rate_lock:
+        now = time.monotonic()
+        elapsed = now - _nim_last_call_time
+        if elapsed < _NIM_MIN_INTERVAL:
+            wait = _NIM_MIN_INTERVAL - elapsed
+            logger.debug("NIM throttle: waiting %.1fs", wait)
+            time.sleep(wait)
+        _nim_last_call_time = time.monotonic()
+
+
 def _call_nim(prompt: str, config: AppConfig, model: str) -> str:
     """Call a specific model on the NVIDIA NIM platform."""
     from openai import OpenAI
+
+    _nim_throttle()  # Enforce global rate limit BEFORE the request
 
     client = OpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
