@@ -39,7 +39,9 @@ def node_review(state: PipelineState) -> dict:
 
 
 def node_fix_writer(state: PipelineState) -> dict:
-    logger.info("=> [3/8] Executing fix_writer...")
+    import time
+    logger.info("=> [3/8] Executing fix_writer... (30s cooldown for NIM rate limit)")
+    time.sleep(30)  # Let NVIDIA's RPM window drain after review_agent's burst
     issues = state.get("issues", [])
     cfg = get_config()
 
