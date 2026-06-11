@@ -285,17 +285,27 @@ def generate(
 
 def _extract_json(text: str) -> Any:
     text = text.strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```(?:json)?\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        for pattern in (r"\{[\s\S]*\}", r"\[[\s\S]*\]"):
-            match = re.search(pattern, text)
-            if match:
+        pass
+
+    match = re.search(r"```(?:json)?(.*?)```", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            pass
+
+    for pattern in (r"\{[\s\S]*\}", r"\[[\s\S]*\]"):
+        match = re.search(pattern, text)
+        if match:
+            try:
                 return json.loads(match.group())
-        raise
+            except json.JSONDecodeError:
+                pass
+    
+    raise ValueError(f"Failed to extract JSON from LLM response: {text[:100]}...")
 
 
 def generate_json(prompt: str, **kwargs: Any) -> Any:
