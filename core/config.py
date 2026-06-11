@@ -13,14 +13,19 @@ load_dotenv()
 
 @dataclass
 class NIMModelConfig:
-    """Per-agent specialized NIM model assignments."""
-    orchestrator: str = "moonshotai/kimi-k2.6"
-    code_reader: str = "qwen/qwen3.5-397b-a17b"
+    """Per-agent specialized NIM model assignments.
+    
+    All agents use meta/llama-3.1-70b-instruct because it has the most
+    generous free-tier rate limits on NVIDIA NIM.  The larger models
+    (675B Mistral, 397B Qwen) are severely throttled and cause 429s.
+    """
+    orchestrator: str = "meta/llama-3.1-70b-instruct"
+    code_reader: str = "meta/llama-3.1-70b-instruct"
     review_agent: str = "meta/llama-3.1-70b-instruct"
-    fix_writer: str = "mistralai/mistral-large-3-675b-instruct-2512"
-    patch_generator: str = "mistralai/mistral-nemotron"
-    test_writer: str = "nvidia/nemotron-3-super-120b-a12b"
-    pr_opener: str = "stepfun-ai/step-3.7-flash"
+    fix_writer: str = "meta/llama-3.1-70b-instruct"
+    patch_generator: str = "meta/llama-3.1-70b-instruct"
+    test_writer: str = "meta/llama-3.1-70b-instruct"
+    pr_opener: str = "meta/llama-3.1-70b-instruct"
     embeddings: str = "nvidia/nv-embedcode-7b-v1"
 
 
