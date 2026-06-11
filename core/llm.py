@@ -90,16 +90,20 @@ def _rate_limit_wait(exc: Exception, attempt: int) -> float:
 
 def _retry(fn, *args, **kwargs) -> str:
     last_err: Optional[Exception] = None
-    for attempt in range(_MAX_RETRIES):
+    max_retries = 5  # Increased to 5 to handle NVIDIA rate limits
+    for attempt in range(max_retries):
         try:
             return fn(*args, **kwargs)
         except Exception as exc:
             last_err = exc
-            if _is_daily_limit(exc) or _is_rate_limit(exc):
-                raise RuntimeError(f"Rate limit exceeded: {exc}") from exc
-            logger.warning("LLM call failed (attempt %d): %s", attempt + 1, exc)
-            time.sleep(min(_BACKOFF_BASE ** attempt, 5.0))
-    raise RuntimeError(f"LLM call failed after {_MAX_RETRIES} retries: {last_err}")
+            if _is_daily_limit(exc):
+                raise RuntimeError(f"Daily token limit exceeded: {exc}") from exc
+            
+            wait_time = _rate_limit_wait(exc, attempt) if _is_rate_limit(exc) else min(_BACKOFF_BASE ** attempt, 10.0)
+            logger.warning("LLM call failed (attempt %d/%d). Waiting %.1fs... %s", attempt + 1, max_retries, wait_time, exc)
+            time.sleep(wait_time)
+            
+    raise RuntimeError(f"LLM call failed after {max_retries} retries: {last_err}")
 
 
 def _call_gemini(prompt: str, config: AppConfig, json_mode: bool = False) -> str:
