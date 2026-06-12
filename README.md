@@ -1,26 +1,33 @@
 # 0xAutoPR
 
-Automated PR review and auto-fix system. 0xAutoPR reviews pull requests, identifies bugs and quality issues, generates code fixes, writes tests, and opens a corrective PR — closing the loop between "found a problem" and "fixed the problem."
+Automated PR review and auto-fix system. 0xAutoPR reviews pull requests, identifies bugs and quality issues, generates code fixes, writes tests, and autonomously opens a corrective PR — closing the loop between "found a problem" and "fixed the problem."
 
-Built entirely on free-tier and open-source resources: **Gemini Flash**, **Groq**, **LangGraph**, **ChromaDB**, and the **GitHub API**.
+Built entirely for the **NVIDIA NIM Free Tier**, leveraging **Llama 3.1 70B**, **ChromaDB**, **LangGraph**, and **SQLite LLM Caching** to operate as a self-healing, rate-limit resistant autonomous engineer.
 
 ## Architecture
 
-```
-PR Webhook → Orchestrator → Code Reader → Review Agent (3 parallel passes)
+```text
+PR Webhook → Orchestrator → Code Reader → Review Agent (Bug, Security, Quality)
                 ↓                              ↓
            PR Opener ← Test Writer ← Patch Generator ← Fix Writer
 ```
 
 | Agent | Role |
 |-------|------|
-| Orchestrator | LangGraph state machine, retries, escalation |
-| Code Reader | Fetch diff, clone repo, ChromaDB indexing |
-| Review Agent | Bug / security / quality parallel analysis |
-| Fix Writer | Generate targeted code fixes |
-| Patch Generator | Unified diffs, conventional commits |
-| Test Writer | Generate and run tests (pytest/jest/go test) |
-| PR Opener | Push fix branch, open corrective PR |
+| **Orchestrator** | LangGraph state machine, retries, LLM caching, rate-limit mitigation |
+| **Code Reader** | Fetch diff, clone repo, ChromaDB codebase indexing (via NV-Embed) |
+| **Review Agent** | Comprehensive, sequential analysis over the PR diff |
+| **Fix Writer** | Generate targeted, localized code fixes for identified issues |
+| **Patch Generator** | Converts LLM suggestions into strict, applicable git unified diffs |
+| **Test Writer** | Generates and executes local unit tests to validate the fix |
+| **PR Opener** | Pushes the fix branch and opens a corrective PR via the GitHub API |
+
+## Key Features
+
+- **100% Free-Tier Architecture**: Hard-optimized to survive strict API rate limits using a global token bucket and intelligent cooldowns.
+- **SQLite LLM Caching**: Instantly bypasses redundant LLM API requests on retries by hashing prompts, turning 3-minute generation loops into 10-millisecond cache hits.
+- **Self-Healing State Machine**: Driven by LangGraph, if a generated fix fails the unit tests, the system automatically loops back, attaches the error logs to the prompt, and tries again.
+- **Asymmetric Vector RAG**: Fully embeds the target repository using `nvidia/nv-embedcode-7b-v1` to give the agents deep architectural context before reviewing a PR.
 
 ## Quick Start
 
@@ -36,25 +43,15 @@ cp .env.example .env
 # Edit .env with your API keys
 ```
 
-### 2. Run webhook server
+### 2. Configure API Keys
 
-```bash
-python main.py serve
-```
-
-Expose locally with ngrok:
-
-```bash
-ngrok http 8080
-```
-
-Configure your GitHub webhook:
-- **URL:** `https://<ngrok-id>.ngrok.io/webhook/github`
-- **Content type:** `application/json`
-- **Events:** Pull requests
-- **Secret:** same as `GITHUB_WEBHOOK_SECRET`
+The system requires only two tokens to operate:
+- `NVIDIA_API_KEY`: Get your free NIM key from build.nvidia.com
+- `GITHUB_TOKEN`: A Personal Access Token with `repo` scope to interact with Pull Requests.
 
 ### 3. Run on a specific PR (CLI)
+
+You can manually trigger a review for any PR locally:
 
 ```bash
 python main.py run \
@@ -66,59 +63,28 @@ python main.py run \
   --head-branch feature-branch
 ```
 
-### 4. GitHub Actions
+### 4. Continuous Integration (GitHub Actions)
 
-Copy `triggers/github_actions.yml` to `.github/workflows/0xautopr.yml` in your target repo. Add secrets:
+To run this autonomously on every new PR, copy `triggers/github_actions.yml` to `.github/workflows/0xautopr.yml` in your target repository. 
 
-- `GEMINI_API_KEY`
-- `GROQ_API_KEY` (optional but recommended)
+Make sure to add `NVIDIA_API_KEY` to your repository's GitHub Secrets.
 
-## Configuration
-
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GITHUB_TOKEN` | Yes | PAT with `repo` scope |
-| `GITHUB_WEBHOOK_SECRET` | Yes (prod) | HMAC secret for webhook validation |
-| `GEMINI_API_KEY` | Yes* | Google AI Studio key |
-| `GROQ_API_KEY` | Recommended | Groq API key for fast review |
-| `DRY_RUN` | No | Skip pushing fix PRs when `true` |
-
-*At least one LLM provider required. Falls back to Ollama if configured.
-
-## Thresholds
+## Configuration & Thresholds
 
 Configured in `core/config.py`:
 
 | Threshold | Default | Behavior |
 |-----------|---------|----------|
-| `fix_min_confidence` | 0.6 | Skip auto-fix below this |
-| `escalate_confidence` | 0.75 | Escalate to human review below this |
-| `max_retries` | 3 | Retry fix generation on test failure |
-
-## Project Structure
-
-```
-0xAutoPR/
-├── agents/           # Multi-agent pipeline
-├── core/             # State, config, GitHub, vector store, LLM
-├── triggers/         # Webhook server + GitHub Actions
-├── tests/            # Unit and integration tests
-├── main.py           # CLI entry point
-└── requirements.txt
-```
-
-## Running Tests
-
-```bash
-pytest tests/ -v
-```
+| `fix_min_confidence` | 0.6 | Skip auto-fix generation for issues below this confidence |
+| `escalate_confidence` | 0.75 | Escalate to human review if the fix is uncertain |
+| `max_retries` | 3 | LangGraph retry limit on test suite failures |
 
 ## Security
 
 - Webhook payloads verified via HMAC-SHA256
 - API keys stored in environment variables only
 - LLM prompts sanitized against injection from code comments
-- Fixes pushed to isolated branches only — never force-push to source branch
+- Fixes pushed to isolated branches only — never force-pushes to the source branch
 
 ## License
 
