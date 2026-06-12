@@ -12,15 +12,15 @@ PR Webhook → Orchestrator → Code Reader → Review Agent (Bug, Security, Qua
            PR Opener ← Test Writer ← Patch Generator ← Fix Writer
 ```
 
-| Agent | Role |
-|-------|------|
-| **Orchestrator** | LangGraph state machine, retries, LLM caching, rate-limit mitigation |
-| **Code Reader** | Fetch diff, clone repo, ChromaDB codebase indexing (via NV-Embed) |
-| **Review Agent** | Comprehensive, sequential analysis over the PR diff |
-| **Fix Writer** | Generate targeted, localized code fixes for identified issues |
-| **Patch Generator** | Converts LLM suggestions into strict, applicable git unified diffs |
-| **Test Writer** | Generates and executes local unit tests to validate the fix |
-| **PR Opener** | Pushes the fix branch and opens a corrective PR via the GitHub API |
+| Agent               | Role                                                                 |
+| ------------------- | -------------------------------------------------------------------- |
+| **Orchestrator**    | LangGraph state machine, retries, LLM caching, rate-limit mitigation |
+| **Code Reader**     | Fetch diff, clone repo, ChromaDB codebase indexing (via NV-Embed)    |
+| **Review Agent**    | Comprehensive, sequential analysis over the PR diff                  |
+| **Fix Writer**      | Generate targeted, localized code fixes for identified issues        |
+| **Patch Generator** | Converts LLM suggestions into strict, applicable git unified diffs   |
+| **Test Writer**     | Generates and executes local unit tests to validate the fix          |
+| **PR Opener**       | Pushes the fix branch and opens a corrective PR via the GitHub API   |
 
 ## Key Features
 
@@ -34,7 +34,7 @@ PR Webhook → Orchestrator → Code Reader → Review Agent (Bug, Security, Qua
 ### 1. Install
 
 ```bash
-git clone https://github.com/your-org/0xAutoPR.git
+git clone https://github.com/MANOJ-80/0xAutoPR.git
 cd 0xAutoPR
 python -m venv .venv
 source .venv/bin/activate
@@ -46,6 +46,7 @@ cp .env.example .env
 ### 2. Configure API Keys
 
 The system requires only two tokens to operate:
+
 - `NVIDIA_API_KEY`: Get your free NIM key from build.nvidia.com
 - `GITHUB_TOKEN`: A Personal Access Token with `repo` scope to interact with Pull Requests.
 
@@ -65,7 +66,7 @@ python main.py run \
 
 ### 4. Continuous Integration (GitHub Actions)
 
-To run this autonomously on every new PR, copy `triggers/github_actions.yml` to `.github/workflows/0xautopr.yml` in your target repository. 
+To run this autonomously on every new PR, copy `triggers/github_actions.yml` to `.github/workflows/0xautopr.yml` in your target repository.
 
 Make sure to add `NVIDIA_API_KEY` to your repository's GitHub Secrets.
 
@@ -73,11 +74,11 @@ Make sure to add `NVIDIA_API_KEY` to your repository's GitHub Secrets.
 
 Configured in `core/config.py`:
 
-| Threshold | Default | Behavior |
-|-----------|---------|----------|
-| `fix_min_confidence` | 0.6 | Skip auto-fix generation for issues below this confidence |
-| `escalate_confidence` | 0.75 | Escalate to human review if the fix is uncertain |
-| `max_retries` | 3 | LangGraph retry limit on test suite failures |
+| Threshold             | Default | Behavior                                                  |
+| --------------------- | ------- | --------------------------------------------------------- |
+| `fix_min_confidence`  | 0.6     | Skip auto-fix generation for issues below this confidence |
+| `escalate_confidence` | 0.75    | Escalate to human review if the fix is uncertain          |
+| `max_retries`         | 3       | LangGraph retry limit on test suite failures              |
 
 ## Security
 
