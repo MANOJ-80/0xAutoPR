@@ -37,9 +37,30 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
 
 
 def _embed_texts(texts: list[str], config: AppConfig) -> list[list[float]]:
+    if config.has_nvidia():
+        return _embed_nim(texts, config)
     if config.has_gemini():
         return _embed_gemini(texts, config)
     return _embed_local(texts)
+
+def _embed_nim(texts: list[str], config: AppConfig) -> list[list[float]]:
+    from openai import OpenAI
+    from core.llm import _nim_throttle
+
+    _nim_throttle()  # Respect global NIM rate limit
+
+    client = OpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=config.nvidia_api_key,
+        timeout=120.0,
+        max_retries=3,
+    )
+    response = client.embeddings.create(
+        input=texts,
+        model=config.nim_models.embeddings,
+        encoding_format="float",
+    )
+    return [data.embedding for data in response.data]
 
 
 def _embed_gemini(texts: list[str], config: AppConfig) -> list[list[float]]:
