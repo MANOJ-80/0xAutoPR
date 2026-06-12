@@ -36,14 +36,14 @@ def _chunk_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = CHUNK_OV
     return chunks
 
 
-def _embed_texts(texts: list[str], config: AppConfig) -> list[list[float]]:
+def _embed_texts(texts: list[str], config: AppConfig, input_type: str = "passage") -> list[list[float]]:
     if config.has_nvidia():
-        return _embed_nim(texts, config)
+        return _embed_nim(texts, config, input_type)
     if config.has_gemini():
         return _embed_gemini(texts, config)
     return _embed_local(texts)
 
-def _embed_nim(texts: list[str], config: AppConfig) -> list[list[float]]:
+def _embed_nim(texts: list[str], config: AppConfig, input_type: str) -> list[list[float]]:
     from openai import OpenAI
     from core.llm import _nim_throttle
 
@@ -59,6 +59,7 @@ def _embed_nim(texts: list[str], config: AppConfig) -> list[list[float]]:
         input=texts,
         model=config.nim_models.embeddings,
         encoding_format="float",
+        extra_body={"input_type": input_type},
     )
     return [data.embedding for data in response.data]
 
@@ -154,7 +155,7 @@ class VectorStore:
             batch_docs = documents[i : i + batch_size]
             batch_ids = ids[i : i + batch_size]
             batch_meta = metadatas[i : i + batch_size]
-            embeddings = _embed_texts(batch_docs, self.config)
+            embeddings = _embed_texts(batch_docs, self.config, input_type="passage")
             collection.add(
                 ids=batch_ids,
                 documents=batch_docs,
@@ -179,7 +180,7 @@ class VectorStore:
         except Exception:
             return []
 
-        embeddings = _embed_texts([query_text], self.config)
+        embeddings = _embed_texts([query_text], self.config, input_type="query")
         results = collection.query(
             query_embeddings=embeddings,
             n_results=min(n_results, collection.count() or 1),
