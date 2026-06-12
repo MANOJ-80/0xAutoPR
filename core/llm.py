@@ -228,6 +228,40 @@ def _call_nim(prompt: str, config: AppConfig, model: str) -> str:
     return completion.choices[0].message.content or ""
 
 
+def _get_cache_db() -> Path:
+    import sqlite3
+    cfg = get_config()
+    db_dir = Path(cfg.chroma_persist_dir)
+    db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = db_dir / "llm_cache.db"
+    
+    with sqlite3.connect(db_path, timeout=15.0) as conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS llm_cache (
+                hash TEXT PRIMARY KEY,
+                response TEXT
+            )
+        ''')
+    return db_path
+
+def _get_cached_response(prompt: str, model: str) -> Optional[str]:
+    import hashlib
+    import sqlite3
+    db_path = _get_cache_db()
+    h = hashlib.sha256(f"{model}:{prompt}".encode()).hexdigest()
+    with sqlite3.connect(db_path, timeout=15.0) as conn:
+        cursor = conn.execute("SELECT response FROM llm_cache WHERE hash = ?", (h,))
+        row = cursor.fetchone()
+        return row[0] if row else None
+
+def _set_cached_response(prompt: str, model: str, response: str) -> None:
+    import hashlib
+    import sqlite3
+    db_path = _get_cache_db()
+    h = hashlib.sha256(f"{model}:{prompt}".encode()).hexdigest()
+    with sqlite3.connect(db_path, timeout=15.0) as conn:
+        conn.execute("INSERT OR REPLACE INTO llm_cache (hash, response) VALUES (?, ?)", (h, response))
+
 def generate_for_agent(
     prompt: str,
     *,
@@ -238,12 +272,18 @@ def generate_for_agent(
 
     NIM is the sole provider.  On rate limits (429), we wait out the full
     60-second window and retry instead of falling back to nothing.
+    Uses SQLite caching to instantly return identical queries.
     """
     cfg = config or get_config()
     nim_model = getattr(cfg.nim_models, agent, None)
 
     if not (nim_model and cfg.has_nvidia()):
         raise RuntimeError(f"No NIM model configured for agent '{agent}'")
+
+    cached = _get_cached_response(prompt, nim_model)
+    if cached is not None:
+        logger.info("NIM call: agent=%s model=%s (CACHED)", agent, nim_model)
+        return cached
 
     last_err: Optional[Exception] = None
     max_attempts = 8  # Enough attempts to survive multiple 60s rate-limit windows
@@ -265,7 +305,9 @@ def generate_for_agent(
                 messages=[{"role": "user", "content": sanitize_prompt(prompt)}],
                 max_tokens=4096,
             )
-            return completion.choices[0].message.content or ""
+            response_text = completion.choices[0].message.content or ""
+            _set_cached_response(prompt, nim_model, response_text)
+            return response_text
 
         except Exception as exc:
             last_err = exc
